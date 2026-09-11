@@ -51,7 +51,8 @@ MIT's own `gss-client` presents it, against this package standing in for
 that reading.
 
 ```sh
-eval "$(test/kdc.sh /tmp/krbtest)"
+test/kdc.sh /tmp/krbtest
+set -a; . /tmp/krbtest/env; set +a
 go test ./...
 ```
 

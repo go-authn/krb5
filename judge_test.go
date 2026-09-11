@@ -37,7 +37,7 @@ func fixture(t *testing.T) (keytab, service string) {
 			t.Fatal("KRB5_REQUIRE_JUDGE is set but the KDC fixture is not: " +
 				"KRB5_CONFIG, KRB5_TEST_KEYTAB and KRB5_TEST_SERVICE must all be set")
 		}
-		t.Skip("no KDC fixture; run test/kdc.sh and export what it prints")
+		t.Skip("no KDC fixture; run test/kdc.sh and source the env file it writes")
 	}
 	return keytab, service
 }
