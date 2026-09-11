@@ -33,7 +33,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           curl -fsS https://pkgx.sh | sh
-          eval "$(./test/kdc.sh "$RUNNER_TEMP/krb5")"
+          eval "$(timeout 300 ./test/kdc.sh "$RUNNER_TEMP/krb5")"
           env | grep '^KRB5' >> "$GITHUB_ENV"
       # And the judge must be reachable in THIS lane: a skip here looks
       # exactly like a pass.
@@ -68,7 +68,7 @@ jobs:
       - name: MIT Kerberos
         run: |
           curl -fsS https://pkgx.sh | sh
-          eval "$(./test/kdc.sh "$RUNNER_TEMP/krb5")"
+          eval "$(timeout 300 ./test/kdc.sh "$RUNNER_TEMP/krb5")"
           env | grep '^KRB5' >> "$GITHUB_ENV"
       - run: go test -race -count=1 ./...
         env:

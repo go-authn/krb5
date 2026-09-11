@@ -28,6 +28,15 @@ else
     echo "no MIT Kerberos: install krb5-kdc, or pkgx" >&2
     exit 1
 fi
+# say reports progress on stderr, which is free: stdout is what the caller
+# evaluates. Without it a step that stops partway looks identical to one that
+# is merely slow, and the only evidence is the job being killed.
+say() { echo "kdc.sh: $*" >&2; }
+
+# run invokes an MIT binary. Callers redirect stdin themselves: everything
+# here must be non-interactive — pkgx ASKS when it cannot find a command, and
+# on a CI runner the answer never comes, so the step hangs until the job is
+# killed rather than failing with something to read.
 run() { if [ -z "$RUN" ]; then "$@"; else $RUN "$@"; fi; }
 
 # pkgx fetches a package the first time it is USED, so the bottle has to be
@@ -35,7 +44,8 @@ run() { if [ -z "$RUN" ]; then "$@"; else $RUN "$@"; fi; }
 # below finds nothing, db_module_dir is written empty, and every later command
 # fails with "Improper format of Kerberos configuration file" — which names
 # the file and not the empty value in it.
-run krb5-config --version >/dev/null 2>&1 || true
+say "materialising the Kerberos package"
+run klist -V </dev/null >/dev/null 2>&1 || true
 
 # Where the KDB plugin actually is, as opposed to where the binary was told.
 PLUGINS=""
@@ -98,8 +108,10 @@ mkdir -p "$DIR/db"
 : > "$DIR/kadm5.acl"
 export KRB5_CONFIG="$DIR/krb5.conf"
 
-run kdb5_util create -s -r "$REALM" -P masterkey >/dev/null
-ka() { run kadmin.local -r "$REALM" -q "$1" >/dev/null 2>&1; }
+say "creating the database for $REALM"
+run kdb5_util create -s -r "$REALM" -P masterkey </dev/null >/dev/null
+ka() { run kadmin.local -r "$REALM" -q "$1" </dev/null >/dev/null 2>&1; }
+say "adding principals"
 ka "addprinc -pw $USER_PW alice@$REALM"
 for host in localhost "$SHORT" "$FQDN"; do
     ka "addprinc -randkey $SERVICE/$host@$REALM"
@@ -110,12 +122,19 @@ done
 # writes is the only handle left. -p sets the UDP port ONLY: without
 # kdc_tcp_ports above the TCP socket falls back to the privileged 88 and the
 # failure reads "Address already in use".
-run krb5kdc -n -r "$REALM" >/dev/null 2>&1 &
+say "starting the KDC on 127.0.0.1:$PORT"
+run krb5kdc -n -r "$REALM" </dev/null >"$DIR/kdc.out" 2>&1 &
 echo $! > "$DIR/kdc.pid"
 sleep 2
 
 export KRB5CCNAME="FILE:$DIR/ccache"
-echo "$USER_PW" | run kinit "alice@$REALM" >/dev/null 2>&1
+say "asking for a ticket"
+if ! echo "$USER_PW" | run kinit "alice@$REALM" >/dev/null 2>&1; then
+    say "kinit FAILED; the KDC said:"
+    tail -5 "$DIR/kdc.log" "$DIR/kdc.out" >&2 2>/dev/null || true
+    exit 1
+fi
+say "ready"
 
 cat <<EOF
 export KRB5_CONFIG=$DIR/krb5.conf
