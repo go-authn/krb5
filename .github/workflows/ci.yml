@@ -52,6 +52,19 @@ jobs:
       - run: go test -count=1 ./...
         env:
           KRB5_REQUIRE_JUDGE: ${{ matrix.os == 'ubuntu-latest' && '1' || '' }}
+      # ⛔ "ok  github.com/go-authn/krb5  0.054s" is not evidence the judge
+      # ran. The test logs the principal MIT authenticated as; this looks for
+      # that line and fails without it, so a judge that silently stopped
+      # running cannot pass as a green lane.
+      - name: the judge actually ran
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        env:
+          KRB5_REQUIRE_JUDGE: "1"
+        run: |
+          go test -count=1 -v -run TestMITClientAgainstThisAcceptor ./... | tee judge.log
+          grep -q "authenticated as alice@" judge.log || {
+            echo "::error::the differential test did not authenticate anybody"; exit 1; }
 
   race:
     name: race detector
@@ -73,6 +86,14 @@ jobs:
       - run: go test -race -count=1 ./...
         env:
           KRB5_REQUIRE_JUDGE: "1"
+      - name: the judge actually ran
+        shell: bash
+        env:
+          KRB5_REQUIRE_JUDGE: "1"
+        run: |
+          go test -race -count=1 -v -run TestMITClientAgainstThisAcceptor ./... | tee judge.log
+          grep -q "authenticated as alice@" judge.log || {
+            echo "::error::the differential test did not authenticate anybody"; exit 1; }
 
   arches:
     name: arch ${{ matrix.goarch }}
