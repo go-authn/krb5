@@ -3,7 +3,8 @@
 # the environment the tests need. Nothing here touches the machine's own
 # Kerberos configuration.
 #
-#   eval "$(test/kdc.sh /tmp/krbtest)"
+#   test/kdc.sh /tmp/krbtest
+#   set -a; . /tmp/krbtest/env; set +a
 #   go test ./...
 #
 # It uses the system's MIT binaries when they are installed and falls back to
@@ -123,7 +124,11 @@ done
 # kdc_tcp_ports above the TCP socket falls back to the privileged 88 and the
 # failure reads "Address already in use".
 say "starting the KDC on 127.0.0.1:$PORT"
-run krb5kdc -n -r "$REALM" </dev/null >"$DIR/kdc.out" 2>&1 &
+if command -v setsid >/dev/null 2>&1; then
+    setsid ${RUN:-} krb5kdc -n -r "$REALM" </dev/null >"$DIR/kdc.out" 2>&1 &
+else
+    run krb5kdc -n -r "$REALM" </dev/null >"$DIR/kdc.out" 2>&1 &
+fi
 echo $! > "$DIR/kdc.pid"
 sleep 2
 
@@ -136,10 +141,23 @@ if ! echo "$USER_PW" | run kinit "alice@$REALM" >/dev/null 2>&1; then
 fi
 say "ready"
 
-cat <<EOF
-export KRB5_CONFIG=$DIR/krb5.conf
-export KRB5CCNAME=FILE:$DIR/ccache
-export KRB5_TEST_KEYTAB=$DIR/service.keytab
-export KRB5_TEST_SERVICE=$SERVICE
-export KRB5_TEST_DIR=$DIR
+# The environment goes into a FILE, and nothing is written to stdout.
+#
+# It used to print the exports for `eval "$(kdc.sh ...)"`, and that hung a CI
+# job for nine minutes THROUGH a timeout: a command substitution waits for
+# the write end of its pipe to close in every process that holds it, on any
+# descriptor. The backgrounded KDC held one, `timeout` killed only the script
+# it started, and the step sat there with nothing to read. A file cannot do
+# that.
+#
+# The lines are KEY=value, which is what GITHUB_ENV wants; in a shell use
+#
+#	set -a; . "$DIR/env"; set +a
+cat > "$DIR/env" <<EOF
+KRB5_CONFIG=$DIR/krb5.conf
+KRB5CCNAME=FILE:$DIR/ccache
+KRB5_TEST_KEYTAB=$DIR/service.keytab
+KRB5_TEST_SERVICE=$SERVICE
+KRB5_TEST_DIR=$DIR
 EOF
+say "environment written to $DIR/env"
