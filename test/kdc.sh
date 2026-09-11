@@ -30,11 +30,18 @@ else
 fi
 run() { if [ -z "$RUN" ]; then "$@"; else $RUN "$@"; fi; }
 
+# pkgx fetches a package the first time it is USED, so the bottle has to be
+# materialised before anything can be found inside it. Without this the search
+# below finds nothing, db_module_dir is written empty, and every later command
+# fails with "Improper format of Kerberos configuration file" — which names
+# the file and not the empty value in it.
+run krb5-config --version >/dev/null 2>&1 || true
+
 # Where the KDB plugin actually is, as opposed to where the binary was told.
 PLUGINS=""
 for d in "$HOME"/.pkgx/kerberos.org/v*/lib/krb5/plugins/kdb \
          /usr/lib/*/krb5/plugins/kdb /usr/lib/krb5/plugins/kdb; do
-    [ -d "$d" ] && PLUGINS=$d
+    if [ -d "$d" ]; then PLUGINS=$d; fi
 done
 
 # The client CANONICALISES the host it is given, so the service principal has
@@ -47,7 +54,7 @@ DOMAIN=$(awk '/^(search|domain)[ \t]/{print $2; exit}' /etc/resolv.conf 2>/dev/n
 FQDN=$(hostname -f 2>/dev/null || hostname)
 case "$FQDN" in
     *.*) ;;
-    *)   [ -n "${DOMAIN:-}" ] && FQDN="$SHORT.$DOMAIN" ;;
+    *)   if [ -n "${DOMAIN:-}" ]; then FQDN="$SHORT.$DOMAIN"; fi ;;
 esac
 
 rm -rf "$DIR"
@@ -74,8 +81,10 @@ mkdir -p "$DIR/db"
         echo "    $DOMAIN = $REALM"
         echo "    .$DOMAIN = $REALM"
     fi
-    echo "[dbmodules]"
-    echo "    db_module_dir = $PLUGINS"
+    if [ -n "$PLUGINS" ]; then
+        echo "[dbmodules]"
+        echo "    db_module_dir = $PLUGINS"
+    fi
     echo "[kdcdefaults]"
     echo "    kdc_ports = $PORT"
     echo "    kdc_tcp_ports = $PORT"
