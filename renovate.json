@@ -1,1 +1,4 @@
-{"$schema":"https://docs.renovatebot.com/renovate-schema.json","extends":["local>go-authn/.github:renovate-config"]}
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["github>go-authn/.github"]
+}

@@ -1,6 +1,11 @@
 # krb5
 
-Accept Kerberos tickets in Go, with no cgo.
+[![Go Reference](https://pkg.go.dev/badge/github.com/go-authn/krb5.svg)](https://pkg.go.dev/github.com/go-authn/krb5)
+[![License](https://img.shields.io/badge/license-BSD--3--Clause-0A6E96?style=flat-square)](LICENSE)
+[![CI](https://github.com/go-authn/krb5/actions/workflows/ci.yml/badge.svg)](https://github.com/go-authn/krb5/actions/workflows/ci.yml)
+
+**Accept Kerberos tickets in Go, with no cgo.** Pure Go, `CGO_ENABLED=0`, over
+[gokrb5](https://github.com/jcmturner/gokrb5) for the ticket decryption.
 
 ```go
 a, err := krb5.Load("/etc/krb5.keytab")
