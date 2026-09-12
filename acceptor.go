@@ -109,6 +109,15 @@ func (a *Acceptor) Accept(token []byte) (*Context, []byte, error) {
 		return nil, nil, fmt.Errorf("%w: %w", ErrNotAToken, err)
 	}
 
+	// Both ciphers are checked BEFORE anything tries to decrypt them; see
+	// checkCipher for why that is load-bearing rather than defensive.
+	if err := checkCipher("the ticket", req.Ticket.EncPart); err != nil {
+		return nil, nil, err
+	}
+	if err := checkCipher("the authenticator", req.EncryptedAuthenticator); err != nil {
+		return nil, nil, err
+	}
+
 	opts := []func(*service.Settings){service.DecodePAC(false)}
 	if a.principal != "" {
 		opts = append(opts, service.KeytabPrincipal(a.principal))
