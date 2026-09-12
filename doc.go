@@ -24,10 +24,12 @@
 //
 // # What it does not do
 //
-// Confidentiality. [Context.Unwrap] reads a wrap token whose payload is in
-// the clear and whose checksum is authenticated; it refuses a sealed one
-// rather than returning ciphertext that reads like a message. In NFS terms
-// that is sec=krb5 and sec=krb5i, and not sec=krb5p.
+// Anything a KDC does: no AS-REQ, no TGS-REQ, no principal database.
+//
+// [Context.Unwrap] still refuses a SEALED token, with a distinct error. A
+// caller reading an integrity-only token must not be handed ciphertext that
+// reads like a message; confidentiality goes through [Context.Seal] and
+// [Context.Unseal], which together are sec=krb5p.
 //
 // It also asserts no acceptor subkey. The context key is the subkey the
 // initiator put in its authenticator, or the ticket's session key when it

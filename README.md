@@ -37,16 +37,15 @@ what this package adds; gokrb5 does the ticket decryption underneath.
 
 ## What it does not do
 
-**Confidentiality.** `Unwrap` reads a wrap token whose payload is in the clear
-and whose checksum is authenticated, and it *refuses* a sealed one rather than
-handing back ciphertext that reads like a message. In NFS terms that is
-`sec=krb5` and `sec=krb5i`, and not `sec=krb5p`.
+**Nothing a KDC does.** No AS-REQ, no TGS-REQ, no principal database.
+
+`Unwrap` still refuses a SEALED token, with a distinct error: a caller reading
+an integrity-only token must not be handed ciphertext that reads like a
+message. Sealed tokens go through `Seal` and `Unseal`, which is `sec=krb5p`.
 
 **Acceptor subkeys.** It asserts none, so the context key is the subkey the
 initiator put in its authenticator — RFC 4121 §4.3 — which keeps the key usage
 numbers unambiguous on both sides.
-
-**Anything a KDC does.** No AS-REQ, no TGS-REQ, no principal database.
 
 ## The judge
 
