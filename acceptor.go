@@ -1,7 +1,6 @@
 package krb5
 
 import (
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -65,10 +64,14 @@ func New(kt *keytab.Keytab, opts ...Option) *Acceptor {
 }
 
 // GSS-API krb5 mechanism token ids (RFC 4121 §4.1).
-const (
-	tokIDAPReq = "0100"
-	tokIDAPRep = "0200"
-	tokIDError = "0300"
+//
+// They are bytes rather than the hex strings gokrb5 uses. A string would have
+// to be decoded at every use, and decoding a constant is a failure path that
+// can never be taken — untestable code in a package where every other refusal
+// is tested.
+var (
+	tokIDAPReq = [2]byte{0x01, 0x00}
+	tokIDAPRep = [2]byte{0x02, 0x00}
 )
 
 // Errors an acceptor returns. They are deliberately coarse: a client learns
@@ -99,7 +102,7 @@ func (a *Acceptor) Accept(token []byte) (*Context, []byte, error) {
 		return nil, nil, err
 	}
 	if tokID != tokIDAPReq {
-		return nil, nil, fmt.Errorf("%w (token id %s)", ErrNotAPReq, tokID)
+		return nil, nil, fmt.Errorf("%w (token id %02x%02x)", ErrNotAPReq, tokID[0], tokID[1])
 	}
 	var req messages.APReq
 	if err := req.Unmarshal(body); err != nil {
@@ -160,18 +163,18 @@ func mutualRequired(o asn1.BitString) bool { return o.At(2) == 1 }
 // splitToken peels the GSS-API InitialContextToken framing (RFC 2743 §3.1):
 // an APPLICATION 0 wrapper around the mechanism OID and then, for the krb5
 // mechanism, a two-byte token id and the Kerberos message.
-func splitToken(b []byte) (tokID string, body []byte, err error) {
+func splitToken(b []byte) (tokID [2]byte, body []byte, err error) {
 	var oid asn1.ObjectIdentifier
 	rest, err := asn1.UnmarshalWithParams(b, &oid, "application,explicit,tag:0")
 	if err != nil {
-		return "", nil, fmt.Errorf("%w: %w", ErrNotAToken, err)
+		return tokID, nil, fmt.Errorf("%w: %w", ErrNotAToken, err)
 	}
 	if !oid.Equal(gssapi.OIDKRB5.OID()) {
-		return "", nil, fmt.Errorf("%w: mechanism is %s, want %s",
+		return tokID, nil, fmt.Errorf("%w: mechanism is %s, want %s",
 			ErrNotAToken, oid, gssapi.OIDKRB5.OID())
 	}
 	if len(rest) < 2 {
-		return "", nil, fmt.Errorf("%w: no token id", ErrNotAToken)
+		return tokID, nil, fmt.Errorf("%w: no token id", ErrNotAToken)
 	}
-	return hex.EncodeToString(rest[:2]), rest[2:], nil
+	return [2]byte(rest[:2]), rest[2:], nil
 }

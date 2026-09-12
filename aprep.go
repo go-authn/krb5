@@ -58,47 +58,25 @@ func (a *Acceptor) apRep(req *messages.APReq) ([]byte, error) {
 		return nil, fmt.Errorf("krb5: marshalling AP-REP: %w", err)
 	}
 	rb = asn1tools.AddASNAppTag(rb, asnAppTag.APREP)
-	return wrapToken(tokIDAPRep, rb)
+	return wrapToken(tokIDAPRep, rb), nil
 }
 
 // wrapToken puts a Kerberos message back inside the GSS-API framing the
 // client sent it in: APPLICATION 0 { mech OID, token id, message }.
-func wrapToken(tokID string, msg []byte) ([]byte, error) {
-	oid, err := asn1.Marshal(gssapi.OIDKRB5.OID())
-	if err != nil {
-		return nil, fmt.Errorf("krb5: marshalling mechanism OID: %w", err)
-	}
-	id, err := hexPair(tokID)
-	if err != nil {
-		return nil, err
-	}
-	b := append(oid, id...)
+func wrapToken(tokID [2]byte, msg []byte) []byte {
+	// The OID is a constant this package owns, so marshalling it cannot
+	// fail; the error asn1.Marshal returns for it is not a path a caller
+	// could ever take, and pretending otherwise costs a branch nothing
+	// tests.
+	oid, _ := asn1.Marshal(gssapi.OIDKRB5.OID())
+	b := append(oid, tokID[:]...)
 	b = append(b, msg...)
-	return asn1tools.AddASNAppTag(b, 0), nil
+	return asn1tools.AddASNAppTag(b, 0)
 }
 
-// hexPair turns a two-byte token id written in hex into its bytes.
-func hexPair(s string) ([]byte, error) {
-	if len(s) != 4 {
-		return nil, fmt.Errorf("krb5: token id %q is not two bytes", s)
-	}
-	var out [2]byte
-	for i := range out {
-		var v byte
-		for _, c := range []byte(s[i*2 : i*2+2]) {
-			switch {
-			case c >= '0' && c <= '9':
-				v = v<<4 | (c - '0')
-			case c >= 'a' && c <= 'f':
-				v = v<<4 | (c - 'a' + 10)
-			default:
-				return nil, fmt.Errorf("krb5: token id %q is not hexadecimal", s)
-			}
-		}
-		out[i] = v
-	}
-	return out[:], nil
-}
+// randRead is crypto/rand.Read, replaceable so that a machine out of entropy
+// is something a test can produce rather than something only a broken one can.
+var randRead = rand.Read
 
 // sequenceNumber draws the acceptor's initial sequence number.
 //
@@ -109,8 +87,13 @@ func hexPair(s string) ([]byte, error) {
 // implementations.
 func sequenceNumber() (int64, error) {
 	var b [4]byte
-	if _, err := rand.Read(b[:]); err != nil {
+	if _, err := randRead(b[:]); err != nil {
 		return 0, fmt.Errorf("krb5: drawing a sequence number: %w", err)
 	}
 	return int64(binary.BigEndian.Uint32(b[:]) &^ (1 << 31)), nil
 }
+
+// appTag0 puts bytes inside the APPLICATION 0 envelope a GSS-API initial
+// context token wears. It exists so tests can build malformed tokens the same
+// way a client builds valid ones.
+func appTag0(b []byte) []byte { return asn1tools.AddASNAppTag(b, 0) }

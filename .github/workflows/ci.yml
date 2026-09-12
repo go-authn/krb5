@@ -107,3 +107,40 @@ jobs:
       - uses: actions/setup-go@v6
         with: { go-version: stable, check-latest: true, cache: true }
       - run: GOARCH=${{ matrix.goarch }} go build ./...
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with: { go-version: stable, check-latest: true, cache: true }
+      # ⛔ The judge belongs in EVERY lane that runs the tests. Without a realm
+      # the differential tests skip, and the figure this lane prints would be
+      # of a run that never spoke to MIT.
+      - name: MIT Kerberos
+        run: |
+          curl -fsS https://pkgx.sh | sh
+          timeout 300 ./test/kdc.sh "$RUNNER_TEMP/krb5"
+          cat "$RUNNER_TEMP/krb5/env" >> "$GITHUB_ENV"
+      - name: Measure
+        env:
+          KRB5_REQUIRE_JUDGE: "1"
+        run: |
+          set -euo pipefail
+          # The floor is what is actually reached today, not a round number.
+          # What is left uncovered is named rather than hidden: asn1.Marshal
+          # of a constant OID, and the branches that fire only when the
+          # machine's CSPRNG fails.
+          FLOOR=90.0
+          go test -count=1 -coverprofile=cover.out -coverpkg=./... ./... >/dev/null
+          go tool cover -func=cover.out | tail -20
+          cov=$(go tool cover -func=cover.out | tail -1 | awk '{print $3}' | tr -d '%')
+          echo "coverage: ${cov}%  floor: ${FLOOR}%"
+          # Written as an `if` rather than `awk ... && { ... }`: in that form
+          # the list's status is awk's, and a lane comfortably above its floor
+          # fails saying nothing about why.
+          if awk -v c="$cov" -v f="$FLOOR" 'BEGIN{exit !(c+0 < f+0)}'; then
+            echo "::error::coverage ${cov}% fell below the recorded floor ${FLOOR}%"
+            exit 1
+          fi
