@@ -1,6 +1,6 @@
 module github.com/go-authn/krb5
 
-go 1.26.4
+go 1.27.1
 
 require (
 	github.com/jcmturner/gofork v1.7.6
