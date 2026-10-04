@@ -20,6 +20,16 @@ session key. It never talks to a KDC and never issues a ticket, so whose
 tickets it accepts is somebody else's decision: MIT, Heimdal, Active Directory
 and FreeIPA all produce tickets it verifies.
 
+`krb5.Load(path)` reads a keytab from disk and `krb5.New(kt)` takes one already
+loaded. `Principal("nfs/host.example.org")` restricts an acceptor to one service
+of a keytab that holds several, and `ClockSkew(seconds)` changes the five
+minutes gokrb5 and MIT allow. A `Context` says who: `Principal()`, or `User()`
+and `Realm()` apart, since mapping a principal to a local account is the
+caller's policy (alice@EXAMPLE.ORG and alice@PARTNER.ORG both answer to
+"alice"), and `Expires()`, past which a server holding long-lived connections
+should stop honouring it. Messages are signed with `MIC`/`VerifyMIC` and
+`Wrap`/`Unwrap`, and sealed with `Seal`/`Unseal`.
+
 ## Why it exists
 
 [gokrb5](https://github.com/jcmturner/gokrb5) is a client library. It verifies
