@@ -62,9 +62,11 @@ go test ./...
 
 `test/kdc.sh` builds a throwaway realm on loopback, unprivileged, and touches
 nothing the machine already has. Setting `KRB5_REQUIRE_JUDGE=1` turns "the
-fixture is missing" from a skip into a failure — every lane that runs the
-tests sets it, because a differential test that can quietly not run is not a
-control.
+fixture is missing" from a skip into a failure — every lane that has MIT
+to judge with sets it (the Linux test lane, the race detector and coverage),
+because a differential test that can quietly not run is not a control. The
+macOS, Windows and cross-architecture lanes have no realm, and there the
+judge skips.
 
 The sample protocol's framing was measured by putting a recording proxy
 between the real client and the real server, not read out of its source.
