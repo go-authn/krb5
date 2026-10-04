@@ -93,12 +93,12 @@ func (c *Context) MIC(msg []byte) ([]byte, error) {
 	return mt.Marshal()
 }
 
-// ErrSealed reports a wrap token carrying confidentiality, which this package
-// does not implement. It is a DISTINCT error from [ErrBadMIC] on purpose: a
-// sealed token is well-formed and correctly signed, and the only thing wrong
-// is that the payload is ciphertext. Returning it as a bad signature would
-// send an operator looking at keys and clocks for a missing feature.
-var ErrSealed = errors.New("krb5: wrap token is sealed (sec=krb5p is not implemented)")
+// ErrSealed reports that [Context.Unwrap] was given a wrap token carrying
+// confidentiality: its payload is ciphertext, which [Context.Unseal] reads.
+// It is a DISTINCT error from [ErrBadMIC] on purpose: a sealed token is
+// well-formed and correctly signed, and returning it as a bad signature would
+// send an operator looking at keys and clocks for the wrong call.
+var ErrSealed = errors.New("krb5: wrap token is sealed (sec=krb5p): read it with Unseal, not Unwrap")
 
 // Unwrap reads a wrap token the client sent and returns its payload.
 func (c *Context) Unwrap(token []byte) ([]byte, error) {
