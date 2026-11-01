@@ -57,6 +57,15 @@ message. Sealed tokens go through `Seal` and `Unseal`, which is `sec=krb5p`.
 initiator put in its authenticator — RFC 4121 §4.3 — which keeps the key usage
 numbers unambiguous on both sides.
 
+## Dependencies and vulnerabilities
+
+gokrb5 v8.4.4 (the latest release) pins old `golang.org/x/net` and
+`golang.org/x/crypto`; v0.3.3 raises them to v0.62.0 and v0.58.0 so that
+`govulncheck -show verbose ./...` no longer lists the 45 advisories those old
+versions carried. None was reachable from this package. One module-level
+advisory remains, GO-2026-5932 (`x/crypto/openpgp` is unmaintained; no fixed
+version exists), and nothing here imports that package.
+
 ## The judge
 
 The tests are not run against a stand-in. A real MIT KDC issues a ticket and
