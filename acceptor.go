@@ -125,12 +125,31 @@ func (a *Acceptor) Accept(token []byte) (*Context, []byte, error) {
 	if a.skew > 0 {
 		opts = append(opts, service.MaxClockSkew(time.Duration(a.skew)*time.Second))
 	}
-	ok, creds, err := service.VerifyAPREQ(&req, service.NewSettings(a.kt, opts...))
+	ok, _, err := service.VerifyAPREQ(&req, service.NewSettings(a.kt, opts...))
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: %w", ErrRejected, err)
 	}
 	if !ok {
 		return nil, nil, ErrRejected
+	}
+
+	// ⛔ WHO the client is comes from the ticket, which the KDC sealed with
+	// our key, never from the authenticator, which the client writes itself.
+	// gokrb5 v8.4.4 builds its credentials from the authenticator
+	// (service/APExchange.go) and compares only the authenticator's NAME with
+	// the ticket's (messages/APReq.go Verify), not its realm. RFC 4120 3.2.3:
+	// "The name and realm of the client from the ticket are compared against
+	// the same fields in the authenticator. If they don't match, the
+	// KRB_AP_ERR_BADMATCH error is returned." Under a cross-realm trust a
+	// partner realm's alice holds a genuine ticket for this service and could
+	// otherwise name our realm in her authenticator.
+	tp := req.Ticket.DecryptedEncPart
+	if req.Authenticator.CRealm != tp.CRealm || !req.Authenticator.CName.Equal(tp.CName) {
+		return nil, nil, fmt.Errorf("%w: the authenticator names another client than the ticket (KRB_AP_ERR_BADMATCH)", ErrRejected)
+	}
+	user, realm := tp.CName.PrincipalNameString(), tp.CRealm
+	if user == "" || realm == "" {
+		return nil, nil, fmt.Errorf("%w: the ticket names no client", ErrRejected)
 	}
 
 	// RFC 4121 §4.3: the context key is the subkey the initiator asserted in
@@ -142,9 +161,9 @@ func (a *Acceptor) Accept(token []byte) (*Context, []byte, error) {
 		key = req.Authenticator.SubKey
 	}
 	ctx := &Context{
-		principal: creds.UserName() + "@" + creds.Domain(),
-		user:      creds.UserName(),
-		realm:     creds.Domain(),
+		principal: user + "@" + realm,
+		user:      user,
+		realm:     realm,
 		key:       key,
 		peerSeq:   uint64(req.Authenticator.SeqNumber),
 		expires:   req.Ticket.DecryptedEncPart.EndTime,
