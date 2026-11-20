@@ -46,6 +46,22 @@ func (c *Context) Realm() string { return c.realm }
 // holding long-lived connections should stop honouring a context past it.
 func (c *Context) Expires() time.Time { return c.expires }
 
+// SessionKey is a copy of the context key: the subkey the client put in its
+// authenticator, or the ticket's session key when it sent none (RFC 4121
+// §4.2.2 / §4.3). Protocols that derive their own keys from the GSS-API one
+// need it -- [MS-SMB2] 3.3.5.5.3 takes Session.SessionKey from its first 16
+// bytes and derives the signing and encryption keys from that.
+//
+// ⛔ It is a SECRET: whoever holds it can sign and seal as either side for as
+// long as the ticket lasts. Never log it, put it in an error, or keep it past
+// [Context.Expires]. Each call returns a fresh copy, so overwriting it does not
+// touch the context.
+func (c *Context) SessionKey() []byte { return append([]byte(nil), c.key.KeyValue...) }
+
+// SessionKeyType is the encryption type of [Context.SessionKey] (RFC 3961
+// numbers: 17 and 18 for AES128 and AES256 CTS-HMAC-SHA1-96, 23 for RC4-HMAC).
+func (c *Context) SessionKeyType() int32 { return c.key.KeyType }
+
 // PeerSequence is the sequence number the client started at, from its
 // authenticator. Protocols that carry their own sequence — RPCSEC_GSS does —
 // check messages against it.

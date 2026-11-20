@@ -30,6 +30,15 @@ caller's policy (alice@EXAMPLE.ORG and alice@PARTNER.ORG both answer to
 should stop honouring it. Messages are signed with `MIC`/`VerifyMIC` and
 `Wrap`/`Unwrap`, and sealed with `Seal`/`Unseal`.
 
+`SessionKey()` and `SessionKeyType()` hand the context key to a protocol that
+derives its own keys from it: SMB takes the first 16 bytes as its session key
+([MS-SMB2] 3.3.5.5.3). It is a copy, and a secret — never log it.
+
+Tokens are accepted under either krb5 mechanism OID: the standard
+1.2.840.113554.1.2.2 and Microsoft's 1.2.840.48018.1.2.2, which Windows' SPNEGO
+offers first. The AP-REP is framed under the OID the client used, as MIT does
+(`accept_sec_context.c`, `mech_used`).
+
 ## Why it exists
 
 [gokrb5](https://github.com/jcmturner/gokrb5) is a client library. It verifies
