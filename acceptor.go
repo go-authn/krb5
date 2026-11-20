@@ -97,7 +97,7 @@ var (
 // An error means no context: the returned token is then empty, and the caller
 // should refuse the operation rather than fall back to something weaker.
 func (a *Acceptor) Accept(token []byte) (*Context, []byte, error) {
-	tokID, body, err := splitToken(token)
+	mech, tokID, body, err := splitToken(token)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -172,7 +172,7 @@ func (a *Acceptor) Accept(token []byte) (*Context, []byte, error) {
 	if !mutualRequired(req.APOptions) {
 		return ctx, nil, nil
 	}
-	rep, err := a.apRep(&req)
+	rep, err := a.apRep(&req, mech)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -188,21 +188,39 @@ func isSet(k types.EncryptionKey) bool { return k.KeyType != 0 && len(k.KeyValue
 // use-session-key(1), mutual-required(2)).
 func mutualRequired(o asn1.BitString) bool { return o.At(2) == 1 }
 
+// The two mechanism OIDs a krb5 token arrives under. Windows' SPNEGO offers
+// the Microsoft one (1.2.840.48018.1.2.2) first and frames its AP-REQ with it;
+// the token after the OID is the same as under the standard one
+// (1.2.840.113554.1.2.2, RFC 1964 / RFC 4121). MIT accepts both and answers in
+// the OID the client used (src/lib/gssapi/krb5/accept_sec_context.c:
+// parse_init_token sets mech_used to gss_mech_krb5_wrong, and the AP-REP header
+// is made with mech_used), and so does this package.
+var (
+	mechKRB5   = gssapi.OIDKRB5.OID()
+	mechMSKRB5 = gssapi.OIDMSLegacyKRB5.OID()
+)
+
 // splitToken peels the GSS-API InitialContextToken framing (RFC 2743 §3.1):
 // an APPLICATION 0 wrapper around the mechanism OID and then, for the krb5
-// mechanism, a two-byte token id and the Kerberos message.
-func splitToken(b []byte) (tokID [2]byte, body []byte, err error) {
+// mechanism, a two-byte token id and the Kerberos message. It returns the OID
+// the token used, one of the two above, for the reply to be framed alike.
+func splitToken(b []byte) (mech asn1.ObjectIdentifier, tokID [2]byte, body []byte, err error) {
 	var oid asn1.ObjectIdentifier
 	rest, err := asn1.UnmarshalWithParams(b, &oid, "application,explicit,tag:0")
 	if err != nil {
-		return tokID, nil, fmt.Errorf("%w: %w", ErrNotAToken, err)
+		return nil, tokID, nil, fmt.Errorf("%w: %w", ErrNotAToken, err)
 	}
-	if !oid.Equal(gssapi.OIDKRB5.OID()) {
-		return tokID, nil, fmt.Errorf("%w: mechanism is %s, want %s",
-			ErrNotAToken, oid, gssapi.OIDKRB5.OID())
+	switch {
+	case oid.Equal(mechKRB5):
+		mech = mechKRB5
+	case oid.Equal(mechMSKRB5):
+		mech = mechMSKRB5
+	default:
+		return nil, tokID, nil, fmt.Errorf("%w: mechanism is %s, want %s or %s",
+			ErrNotAToken, oid, mechKRB5, mechMSKRB5)
 	}
 	if len(rest) < 2 {
-		return tokID, nil, fmt.Errorf("%w: no token id", ErrNotAToken)
+		return nil, tokID, nil, fmt.Errorf("%w: no token id", ErrNotAToken)
 	}
-	return [2]byte(rest[:2]), rest[2:], nil
+	return mech, [2]byte(rest[:2]), rest[2:], nil
 }

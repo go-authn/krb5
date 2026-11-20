@@ -8,7 +8,6 @@ import (
 	"github.com/jcmturner/gofork/encoding/asn1"
 	"github.com/jcmturner/gokrb5/v8/asn1tools"
 	"github.com/jcmturner/gokrb5/v8/crypto"
-	"github.com/jcmturner/gokrb5/v8/gssapi"
 	"github.com/jcmturner/gokrb5/v8/iana"
 	"github.com/jcmturner/gokrb5/v8/iana/asnAppTag"
 	"github.com/jcmturner/gokrb5/v8/iana/keyusage"
@@ -29,7 +28,7 @@ import (
 // here would catch the swap. The session key is kept because it is what
 // RFC 4120 §5.5.2 says and what a second implementation may be stricter about;
 // saying so beats a comment that implies a control exists.
-func (a *Acceptor) apRep(req *messages.APReq) ([]byte, error) {
+func (a *Acceptor) apRep(req *messages.APReq, mech asn1.ObjectIdentifier) ([]byte, error) {
 	seq, err := sequenceNumber()
 	if err != nil {
 		return nil, err
@@ -58,17 +57,17 @@ func (a *Acceptor) apRep(req *messages.APReq) ([]byte, error) {
 		return nil, fmt.Errorf("krb5: marshalling AP-REP: %w", err)
 	}
 	rb = asn1tools.AddASNAppTag(rb, asnAppTag.APREP)
-	return wrapToken(tokIDAPRep, rb), nil
+	return wrapToken(mech, tokIDAPRep, rb), nil
 }
 
 // wrapToken puts a Kerberos message back inside the GSS-API framing the
-// client sent it in: APPLICATION 0 { mech OID, token id, message }.
-func wrapToken(tokID [2]byte, msg []byte) []byte {
-	// The OID is a constant this package owns, so marshalling it cannot
-	// fail; the error asn1.Marshal returns for it is not a path a caller
-	// could ever take, and pretending otherwise costs a branch nothing
-	// tests.
-	oid, _ := asn1.Marshal(gssapi.OIDKRB5.OID())
+// client sent it in: APPLICATION 0 { mech OID, token id, message }, under the
+// OID the client used (see splitToken).
+func wrapToken(mech asn1.ObjectIdentifier, tokID [2]byte, msg []byte) []byte {
+	// mech is one of the two constants splitToken returns, so marshalling it
+	// cannot fail; the error asn1.Marshal returns for it is not a path a caller
+	// could ever take, and pretending otherwise costs a branch nothing tests.
+	oid, _ := asn1.Marshal(mech)
 	b := append(oid, tokID[:]...)
 	b = append(b, msg...)
 	return asn1tools.AddASNAppTag(b, 0)
