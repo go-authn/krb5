@@ -3,6 +3,7 @@ package krb5
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jcmturner/gofork/encoding/asn1"
@@ -96,7 +97,14 @@ var (
 //
 // An error means no context: the returned token is then empty, and the caller
 // should refuse the operation rather than fall back to something weaker.
-func (a *Acceptor) Accept(token []byte) (*Context, []byte, error) {
+func (a *Acceptor) Accept(token []byte) (outCtx *Context, outRep []byte, outErr error) {
+	// Defence in depth: the token is attacker-controlled and gokrb5 indexes
+	// into its decoded fields. A panic there must refuse, never crash.
+	defer func() {
+		if r := recover(); r != nil {
+			outCtx, outRep, outErr = nil, nil, fmt.Errorf("%w: malformed ticket", ErrRejected)
+		}
+	}()
 	mech, tokID, body, err := splitToken(token)
 	if err != nil {
 		return nil, nil, err
@@ -120,6 +128,15 @@ func (a *Acceptor) Accept(token []byte) (*Context, []byte, error) {
 
 	opts := []func(*service.Settings){service.DecodePAC(false)}
 	if a.principal != "" {
+		// ⛔ With Principal set, gokrb5 looks the key up by the configured
+		// name and never reads the ticket's CLEARTEXT sname — which the client
+		// controls, since only the encrypted part is sealed. Left alone, an
+		// empty sname panics gokrb5 (it indexes NameString[0]) and a rewritten
+		// one slips past its replay cache, which keys on that cleartext name.
+		// So the ticket must name exactly the service we answer for.
+		if strings.Join(req.Ticket.SName.NameString, "/") != a.principal {
+			return nil, nil, fmt.Errorf("%w: the ticket is for another service", ErrRejected)
+		}
 		opts = append(opts, service.KeytabPrincipal(a.principal))
 	}
 	if a.skew > 0 {
