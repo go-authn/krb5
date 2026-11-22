@@ -22,7 +22,14 @@ type Acceptor struct {
 	kt        *keytab.Keytab
 	principal string
 	skew      int
+	replayMax int
+	replay    *replayCache
 }
+
+// ReplayCacheSize caps the replay cache at n authenticators in total (one
+// client may hold n/16 of them). Zero means 65536. A full cache refuses new
+// authenticators until the oldest expire, rather than forgetting them.
+func ReplayCacheSize(n int) Option { return func(a *Acceptor) { a.replayMax = n } }
 
 // Option configures an [Acceptor].
 type Option func(*Acceptor)
@@ -61,6 +68,11 @@ func New(kt *keytab.Keytab, opts ...Option) *Acceptor {
 	for _, o := range opts {
 		o(a)
 	}
+	skew := time.Duration(a.skew) * time.Second
+	if skew <= 0 {
+		skew = defaultSkew
+	}
+	a.replay = newReplayCache(a.replayMax, skew)
 	return a
 }
 
@@ -126,6 +138,14 @@ func (a *Acceptor) Accept(token []byte) (outCtx *Context, outRep []byte, outErr 
 		return nil, nil, err
 	}
 
+	// ⛔ A ticket-granting ticket is not a service ticket. A keytab shared with
+	// the KDC holds the krbtgt key, and without Principal gokrb5 picks the key
+	// by the ticket's cleartext sname, so a TGT would open a context here.
+	// No service is named krbtgt, so refuse it whatever the configuration.
+	if n := req.Ticket.SName.NameString; len(n) > 0 && strings.EqualFold(n[0], "krbtgt") {
+		return nil, nil, fmt.Errorf("%w: a ticket-granting ticket is not a service ticket", ErrRejected)
+	}
+
 	opts := []func(*service.Settings){service.DecodePAC(false)}
 	if a.principal != "" {
 		// ⛔ With Principal set, gokrb5 looks the key up by the configured
@@ -142,7 +162,11 @@ func (a *Acceptor) Accept(token []byte) (outCtx *Context, outRep []byte, outErr 
 	if a.skew > 0 {
 		opts = append(opts, service.MaxClockSkew(time.Duration(a.skew)*time.Second))
 	}
-	ok, _, err := service.VerifyAPREQ(&req, service.NewSettings(a.kt, opts...))
+	// gokrb5's VerifyAPREQ is not used: after Verify it consults its own
+	// process-wide replay cache, which this package replaces (replay.go). The
+	// PAC is not decoded (DecodePAC(false) above), so nothing else is skipped.
+	s := service.NewSettings(a.kt, opts...)
+	ok, err := req.Verify(s.Keytab, s.MaxClockSkew(), s.ClientAddress(), s.KeytabPrincipal())
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: %w", ErrRejected, err)
 	}
@@ -167,6 +191,15 @@ func (a *Acceptor) Accept(token []byte) (outCtx *Context, outRep []byte, outErr 
 	user, realm := tp.CName.PrincipalNameString(), tp.CRealm
 	if user == "" || realm == "" {
 		return nil, nil, fmt.Errorf("%w: the ticket names no client", ErrRejected)
+	}
+
+	// Last of the checks, so that a request refused above never takes a slot.
+	ct := req.Authenticator.CTime.Add(time.Duration(req.Authenticator.Cusec) * time.Microsecond)
+	if err := a.replay.admit(replayKey{
+		realm: realm, cname: user,
+		sname: strings.Join(req.Ticket.SName.NameString, "/"), at: ct,
+	}); err != nil {
+		return nil, nil, fmt.Errorf("%w: %w", ErrRejected, err)
 	}
 
 	// RFC 4121 §4.3: the context key is the subkey the initiator asserted in

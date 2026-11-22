@@ -23,7 +23,11 @@ and FreeIPA all produce tickets it verifies.
 `krb5.Load(path)` reads a keytab from disk and `krb5.New(kt)` takes one already
 loaded. `Principal("nfs/host.example.org")` restricts an acceptor to one service
 of a keytab that holds several, and `ClockSkew(seconds)` changes the five
-minutes gokrb5 and MIT allow. A `Context` says who: `Principal()`, or `User()`
+minutes gokrb5 and MIT allow. Each acceptor keeps its own replay cache, capped
+(`ReplayCacheSize(n)`, 65536 by default; a full cache refuses rather than
+forgets), and a ticket-granting ticket is never accepted as a service ticket,
+although a service should still get its own keytab, never the KDC's: the krbtgt
+key forges any ticket. A `Context` says who: `Principal()`, or `User()`
 and `Realm()` apart, since mapping a principal to a local account is the
 caller's policy (alice@EXAMPLE.ORG and alice@PARTNER.ORG both answer to
 "alice"), and `Expires()`, past which a server holding long-lived connections
